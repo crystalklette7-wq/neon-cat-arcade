@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Neon Cat Arcade — SHMUP GODMODE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<style>
+html,body{margin:0;padding:0;background:black;overflow:hidden;touch-action:none;font-family:monospace}
+canvas{display:block}
+.scanlines::after{
+ content:"";position:fixed;inset:0;
+ background:linear-gradient(rgba(255,255,255,.05) 50%, rgba(0,0,0,.2) 50%);
+ background-size:100% 4px;pointer-events:none;mix-blend-mode:overlay
+}
+.overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.9);color:cyan;z-index:10}
+button{margin:6px;padding:10px 20px;background:black;color:cyan;border:2px solid cyan;font-size:16px}
+#hud{position:fixed;top:10px;left:10px;color:white;z-index:5}
+#joystick{display:none;position:fixed;bottom:20px;left:20px;width:140px;height:140px;border-radius:50%;border:3px solid cyan;background:rgba(0,255,255,.25)}
+#stick{position:absolute;top:50px;left:50px;width:40px;height:40px;border-radius:50%;background:cyan}
+#fire{display:none;position:fixed;bottom:40px;right:40px;width:100px;height:100px;border-radius:50%;border:3px solid magenta;color:magenta;
+display:flex;align-items:center;justify-content:center;font-size:18px}
+</style>
+</head>
+<body class="scanlines">
+
+<div id="menu" class="overlay">
+<h1>NEON CAT SHMUP — GODMODE</h1>
+<button onclick="start()">START</button>
+<button onclick="toggleCRT()">CRT MODE</button>
+<p>HIGH SCORE: <span id="hs">0</span></p>
+</div>
+
+<canvas id="game"></canvas>
+<div id="hud"></div>
+<div id="joystick"><div id="stick"></div></div>
+<div id="fire">FIRE</div>
+
+<script>
+/* ===== AUDIO (BGM + SFX) ===== */
+let ctx;
+function tone(f,d=.15){
+ if(!ctx) ctx=new (AudioContext||webkitAudioContext)();
+ let o=ctx.createOscillator(),g=ctx.createGain();
+ o.frequency.value=f;o.type="sawtooth";
+ o.connect(g);g.connect(ctx.destination);
+ o.start();g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+d);
+}
+let bgm;
+function startBGM(){
+ if(!ctx) ctx=new (AudioContext||webkitAudioContext)();
+ bgm=ctx.createOscillator();
+ let g=ctx.createGain();
+ bgm.frequency.value=120;bgm.type="square";
+ bgm.connect(g);g.connect(ctx.destination);
+ g.gain.value=.05;bgm.start();
+}
+
+/* ===== GAME ===== */
+const c=document.getElementById("game"),x=c.getContext("2d");
+c.width=innerWidth;c.height=innerHeight;
+
+let score=0,level=1,lives=3,weapon=1,state="menu";
+let p,bullets=[],enemies=[],joyX=0,joyY=0,shoot=false;
+let hs=+localStorage.getItem("hs")||0;
+document.getElementById("hs").textContent=hs;
+
+const joy=document.getElementById("joystick"),stick=document.getElementById("stick");
+const fire=document.getElementById("fire");
+
+function start(){
+ state="play";score=0;level=1;lives=3;weapon=1;
+ p={x:c.width/2-20,y:c.height-80,w:40,h:40};
+ bullets=[];enemies=[];
+ document.getElementById("menu").style.display="none";
+ joy.style.display="block";fire.style.display="flex";
+ startBGM();
+}
+
+joy.addEventListener("touchstart",e=>{center(e)});
+joy.addEventListener("touchmove",e=>moveJoy(e));
+joy.addEventListener("touchend",()=>resetJoy());
+fire.addEventListener("touchstart",()=>shoot=true);
+fire.addEventListener("touchend",()=>shoot=false);
+
+let cx=0,cy=0;
+function center(e){
+ let r=joy.getBoundingClientRect();
+ cx=r.left+r.width/2;cy=r.top+r.height/2;
+}
+function moveJoy(e){
+ let dx=e.touches[0].clientX-cx;
+ let dy=e.touches[0].clientY-cy;
+ dx=Math.max(-40,Math.min(40,dx));
+ dy=Math.max(-40,Math.min(40,dy));
+ joyX=dx/40;joyY=dy/40;
+ stick.style.left=50+dx+"px";stick.style.top=50+dy+"px";
+}
+function resetJoy(){joyX=joyY=0;stick.style.left="50px";stick.style.top="50px";}
+
+function spawnEnemy(){
+ enemies.push({x:Math.random()*(c.width-30),y:-40,w:30,h:30,hp:level+1});
+}
+
+function shootBullet(){
+ bullets.push({x:p.x+p.w/2-3,y:p.y-10});
+ if(weapon>1) bullets.push({x:p.x+5,y:p.y-10});
+ if(weapon>2) bullets.push({x:p.x+p.w-11,y:p.y-10});
+ tone(700);
+}
+
+function toggleCRT(){document.body.classList.toggle("scanlines");}
+
+function loop(){
+ requestAnimationFrame(loop);
+ if(state!=="play")return;
+ x.clearRect(0,0,c.width,c.height);
+
+ p.x+=joyX*6;p.y+=joyY*6;
+ p.x=Math.max(0,Math.min(c.width-p.w,p.x));
+ p.y=Math.max(0,Math.min(c.height-p.h,p.y));
+ x.fillStyle="cyan";x.fillRect(p.x,p.y,p.w,p.h);
+
+ if(shoot && Math.random()<0.25) shootBullet();
+
+ bullets.forEach(b=>{b.y-=10;x.fillStyle="white";x.fillRect(b.x,b.y,6,10)});
+ bullets=bullets.filter(b=>b.y>-20);
+
+ if(Math.random()<0.02+level*0.01) spawnEnemy();
+ enemies.forEach(e=>{
+  e.y+=2+level;
+  x.fillStyle="magenta";x.fillRect(e.x,e.y,e.w,e.h);
+  bullets.forEach(b=>{
+   if(b.x<e.x+e.w&&b.x+6>e.x&&b.y<e.y+e.h){
+    e.hp--;b.y=-999;
+    if(e.hp<=0){score+=100;tone(900);e.y=9999;}
+   }
+  });
+ });
+
+ enemies=enemies.filter(e=>e.y<c.height+50);
+
+ if(score>level*1500){level++;weapon=Math.min(3,weapon+1);tone(1200);}
+ x.fillStyle="white";
+ x.fillText(`LV ${level} ❤️${lives} 🔫${weapon} SCORE ${score}`,20,30);
+
+ if(lives<=0){
+  state="menu";
+  joy.style.display="none";fire.style.display="none";
+  if(score>hs){hs=score;localStorage.setItem("hs",hs);}
+  document.getElementById("hs").textContent=hs;
+  document.getElementById("menu").style.display="flex";
+ }
+}
+loop();
+</script>
+</body>
+</html>
