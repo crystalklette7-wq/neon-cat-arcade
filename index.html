@@ -1,134 +1,153 @@
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Neon Cat Arcade - CRT Mode</title>
+<title>Neon Cat Arcade</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
 <style>
-  body {
-    margin: 0;
-    background: #000;
-    color: #0ff;
-    font-family: monospace;
-    text-align: center;
-  }
-  canvas {
-    display: block;
-    margin: 20px auto;
-    background: #000;
-    border: 6px solid #0ff;
-    box-shadow: 0 0 30px #0ff;
-    image-rendering: pixelated;
-  }
-  .crt::after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-      repeating-linear-gradient(
-        to bottom,
-        rgba(255,255,255,0.03),
-        rgba(255,255,255,0.03) 1px,
-        rgba(0,0,0,0) 2px,
-        rgba(0,0,0,0) 4px
-      );
-    mix-blend-mode: overlay;
-  }
+html,body{margin:0;padding:0;background:black;overflow:hidden;touch-action:none;font-family:monospace}
+canvas{display:block}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(to bottom,rgba(255,255,255,.05),rgba(255,255,255,.05) 1px,transparent 2px)}
+.overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.85);color:cyan;z-index:10;text-align:center}
+button{margin-top:20px;padding:10px 20px;background:black;color:cyan;border:2px solid cyan;font-size:18px}
+#joystick{display:none;position:fixed;bottom:20px;left:20px;width:140px;height:140px;border-radius:50%;border:3px solid cyan;background:rgba(0,255,255,.25);z-index:9999}
+#stick{position:absolute;top:50px;left:50px;width:40px;height:40px;border-radius:50%;background:cyan;box-shadow:0 0 12px cyan}
 </style>
 </head>
-<body class="crt">
+<body>
 
+<div id="menu" class="overlay">
 <h1>NEON CAT ARCADE</h1>
-<p>Left / Right to move | C continue | I insert coin | R restart</p>
+<p id="endingText"></p>
+<button onclick="startGame()">START</button>
+<p>HIGH SCORE: <span id="hs">0</span></p>
+</div>
 
-<canvas id="game" width="420" height="640"></canvas>
+<canvas id="game"></canvas>
+<div id="joystick"><div id="stick"></div></div>
 
 <script>
-const c = document.getElementById("game");
-const ctx = c.getContext("2d");
+// ====== AUDIO ======
+const bgm = new Audio();
+bgm.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+bgm.loop = true;
+bgm.volume = 0.3;
 
-let player = {x:190,y:580,w:40,h:40};
-let blocks = [];
-let score = 0;
-let lives = 3;
-let credits = 3;
-let speed = 3;
-let gameState = "play";
+function sfx(freq){
+  const ctx = new (window.AudioContext||webkitAudioContext)();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.frequency.value=freq;
+  o.connect(g); g.connect(ctx.destination);
+  o.start(); g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.2);
+}
 
-document.addEventListener("keydown", e => {
-  if (gameState === "play") {
-    if (e.key === "ArrowLeft") player.x -= 8;
-    if (e.key === "ArrowRight") player.x += 8;
-  }
-  if (e.key.toLowerCase() === "i") credits++;
-  if (e.key.toLowerCase() === "r") reset();
-  if (e.key.toLowerCase() === "c" && gameState === "continue" && credits > 0) {
-    credits--; lives = 3; gameState = "play";
-  }
-});
+// ====== GAME ======
+const c=document.getElementById("game"),x=c.getContext("2d");
+c.width=innerWidth;c.height=innerHeight;
+
+let state="menu",level=1,maxLevel=3;
+let p,obs,score,speed,joy=0;
+let endings=["BAD END","GOOD END","TRUE END"];
+
+let hs=+localStorage.getItem("highScore")||0;
+document.getElementById("hs").textContent=hs;
+
+const joyBase=document.getElementById("joystick"),stick=document.getElementById("stick");
+let centerX=0;
 
 function reset(){
-  score = 0; lives = 3; speed = 3;
-  blocks = []; gameState = "play";
+ p={x:c.width/2-20,y:c.height-60,w:40,h:40};
+ obs=[];score=0;
+ speed=3+level;
 }
 
-function spawnBlock(){
-  blocks.push({x:Math.random()*380,y:-30,s:30});
+function startGame(){
+ level=1;
+ document.getElementById("endingText").textContent="";
+ state="play";
+ reset();
+ document.getElementById("menu").style.display="none";
+ joyBase.style.display="block";
+ bgm.play();
 }
 
-function update(){
-  ctx.clearRect(0,0,c.width,c.height);
+joyBase.addEventListener("touchstart",e=>{
+ const r=joyBase.getBoundingClientRect();
+ centerX=r.left+r.width/2;
+});
+joyBase.addEventListener("touchmove",e=>{
+ let dx=e.touches[0].clientX-centerX;
+ dx=Math.max(-40,Math.min(40,dx));
+ joy=dx/40;
+ stick.style.left=50+dx+"px";
+});
+joyBase.addEventListener("touchend",()=>{joy=0;stick.style.left="50px";});
 
-  if (gameState === "play") {
-    if (Math.random()<0.03) spawnBlock();
-    score++; if (score%500===0) speed+=0.3;
-  }
-
-  ctx.fillStyle="#ff66cc";
-  ctx.fillRect(player.x,player.y,player.w,player.h);
-
-  ctx.fillStyle="#ff3333";
-  blocks.forEach(b=>{
-    b.y+=speed;
-    ctx.fillRect(b.x,b.y,b.s,b.s);
-    if(b.x<player.x+player.w && b.x+b.s>player.x && b.y<player.y+player.h && b.y+b.s>player.y){
-      lives--; b.y=700;
-      if(lives<=0){
-        if(credits>0) gameState="continue";
-        else gameState="over";
-      }
-    }
-  });
-
-  blocks = blocks.filter(b=>b.y<700);
-
-  ctx.fillStyle="#0ff";
-  ctx.fillText("Score: "+score,10,20);
-  ctx.fillText("Lives: "+lives,340,20);
-  ctx.fillText("Credits: "+credits,160,20);
-
-  if(gameState==="continue"){
-    ctx.font="26px monospace";
-    ctx.textAlign="center";
-    ctx.fillText("CONTINUE?",210,320);
-    ctx.font="16px monospace";
-    ctx.fillText("PRESS C",210,350);
-  }
-
-  if(gameState==="over"){
-    ctx.font="26px monospace";
-    ctx.textAlign="center";
-    ctx.fillText("GAME OVER",210,320);
-    ctx.font="16px monospace";
-    ctx.fillText("PRESS R",210,350);
-  }
-
-  requestAnimationFrame(update);
+function spawn(){
+ obs.push({x:Math.random()*(c.width-30),y:-30,w:30,h:30});
 }
 
-update();
+function loop(){
+ requestAnimationFrame(loop);
+ if(state!=="play")return;
+ x.clearRect(0,0,c.width,c.height);
+
+ p.x+=joy*6;
+ p.x=Math.max(0,Math.min(c.width-p.w,p.x));
+
+ if(Math.random()<.02+level*.01)spawn();
+
+ x.fillStyle="cyan";
+ x.fillRect(p.x,p.y,p.w,p.h);
+
+ x.fillStyle="magenta";
+ obs.forEach(o=>{
+  o.y+=speed;
+  x.fillRect(o.x,o.y,o.w,o.h);
+  if(o.x<p.x+p.w&&o.x+o.w>p.x&&o.y<p.y+p.h&&o.y+o.h>p.y){
+    sfx(120);
+    gameOver();
+  }
+ });
+
+ obs=obs.filter(o=>o.y<c.height);
+
+ score++;
+ if(score>1000){
+  level++;
+  sfx(600);
+  if(level>maxLevel){ win(); return; }
+  reset();
+ }
+
+ x.fillStyle="white";
+ x.fillText("LEVEL "+level,20,30);
+ x.fillText("SCORE "+score,20,50);
+}
+
+function gameOver(){
+ bgm.pause();
+ state="menu";
+ joyBase.style.display="none";
+ document.getElementById("endingText").textContent=endings[Math.min(level-1,2)];
+ if(score>hs){hs=score;localStorage.setItem("highScore",hs);}
+ document.getElementById("hs").textContent=hs;
+ document.getElementById("menu").style.display="flex";
+}
+
+function win(){
+ bgm.pause();
+ state="menu";
+ joyBase.style.display="none";
+ document.getElementById("endingText").textContent="🎉 "+endings[2]+" 🎉";
+ document.getElementById("menu").style.display="flex";
+}
+
+loop();
 </script>
-
 </body>
 </html>
